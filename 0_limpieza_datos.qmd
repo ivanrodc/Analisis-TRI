@@ -1,0 +1,86 @@
+---
+title: "Limpieza de los datos"
+description: "Técnicas de medición para Estadística (XS4050)"
+author: 
+  - name: Iván Daniel Rodríguez Cruz
+    email: ivan.rodriguezcruz@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+    
+  - name: Manrique Camacho Pochet
+    email: manrique.camacho@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+    
+  - name: Amanda Cedeño Guzmán 
+    email: amanda.cedeno@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+    
+  - name: Brandon Arias Sandoval 
+    email: brandon.arias@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+format: html
+editor: visual
+---
+
+# CONFIGURACIÓN GENERAL
+
+```{r}
+# Configuración base de R: 
+rm(list = ls(all.names = TRUE)) # Limpiar el Environment
+
+clearhistory = function() {
+  write("", file = ".blank")
+  loadhistory(".blank")
+  unlink(".blank")
+}
+
+clearhistory() # Limpiar el history de R
+```
+
+## Librerías
+
+```{r}
+pacman::p_load(
+  tidyverse, magrittr, rio, here, openxlsx, readxl
+)
+```
+
+## Datos originales
+
+```{r}
+datos = read_excel(path = here("Datos originales", "2024 11 08 Respuestas Form.xlsx"), sheet = 1)
+datos
+```
+
+------------------------------------------------------------------------
+
+# Limpieza
+
+```{r}
+datos_limpios = datos %>% 
+  # Renombrar las columnas:
+  # Dimensión: Gestión inadecuada del tiempo y organización académica (GT):
+  rename_with(.cols = 1:16, .fn = ~ paste0("GT", 1:16)) %>%
+  # Dimensión: Desmotivación académica intrínseca y percepción desagradable del estudio (DA):
+  rename_with(.cols = 17:26, .fn = ~ paste0("DA", 17:26)) %>%
+  # Variables de control:
+  rename(SEXO = 27, YEAR_UCR = 28) %>% 
+  # Codificación: Reemplazar "De acuerdo" por 1 y cualquier otro valor por 0 en las columnas 1 a 26:
+  mutate(across(1:26, ~ case_when(
+    . == "De acuerdo" ~ 1,
+    TRUE ~ 0
+  )))
+  
+# Resultado final: 
+datos_limpios
+```
+
+
+# Guardar en Excel
+
+```{r}
+openxlsx::write.xlsx(x = datos_limpios, file = here("Datos limpios", "base_limpia.xlsx"))
+```

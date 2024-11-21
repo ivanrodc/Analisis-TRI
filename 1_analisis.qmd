@@ -1,0 +1,796 @@
+---
+title: "Análisis de datos"
+description: "Técnicas de medición para Estadística (XS4050)"
+author: 
+  - name: Iván Daniel Rodríguez Cruz
+    email: ivan.rodriguezcruz@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+    
+  - name: Manrique Camacho Pochet
+    email: manrique.camacho@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+    
+  - name: Amanda Cedeño Guzmán 
+    email: amanda.cedeno@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+    
+  - name: Brandon Arias Sandoval 
+    email: brandon.arias@ucr.ac.cr
+    affiliation: Estudiante de la Escuela de Estadística, Universidad de Costa Rica
+    corresponding: true
+format: html
+editor: visual
+---
+
+# CONFIGURACIÓN GENERAL
+
+```{r}
+# Configuración base de R: 
+rm(list = ls(all.names = TRUE)) # Limpiar el Environment
+
+clearhistory = function() {
+  write("", file = ".blank")
+  loadhistory(".blank")
+  unlink(".blank")
+}
+
+clearhistory() # Limpiar el history de R
+```
+
+## Librerías
+
+```{r}
+pacman::p_load(
+  tidyverse, magrittr, readxl, ggthemes, here,
+  
+  # Análisis psicométrico: 
+  psych, foreign, lavaan, semPlot, ltm
+)
+```
+
+## Datos originales
+
+```{r}
+datos = read_excel(path = here("Datos limpios", "base_limpia.xlsx"), sheet = 1)
+
+datosF = datos %>% dplyr::select(-c(SEXO, YEAR_UCR))
+
+#datosF %>% pivot_longer(cols = 1:26, names_to = "Items", values_to = "Respuesta")
+
+datos2 = datos %>% dplyr::select(-c(SEXO, YEAR_UCR)) ; datos2
+```
+
+------------------------------------------------------------------------
+
+# I PARTE: Análisis de dimensionalidad
+
+## Matriz de correlaciones (Pearson)
+
+```{r}
+# Matriz de correlación:
+mc = cor(datos2, use = "complete", method = "pearson")
+mc_melt = reshape2::melt(mc)
+
+# Filtrar para mostrar solo el triángulo inferior de la matriz
+mc_lower = mc_melt %>% 
+  filter(as.numeric(Var1) >= as.numeric(Var2))
+
+# Crear el gráfico
+correlacion_gf = mc_lower %>% 
+  ggplot(aes(Var2, Var1, fill = value)) +  
+  geom_tile() +  
+  paletteer::scale_fill_paletteer_c("ggthemes::Classic Blue") +
+  theme_minimal(base_size = 10) + 
+  theme(
+    panel.grid = element_blank(),  # Elimina las líneas de la cuadrícula
+    panel.background = element_rect(fill = "white", color = NA),  # Fondo blanco
+    axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1), 
+    legend.title = element_text(size = 8, face = "bold")
+  ) +
+  labs(title = NULL, fill = "Correlación", x = NULL, y = NULL) +
+  coord_fixed() +
+  scale_y_discrete(limits = rev(levels(mc_lower$Var1)))
+
+# Guardar el gráfico:
+ggsave(
+  filename = here("Resultados", "Matriz de correlaciones.svg"),
+  plot = correlacion_gf,
+  width = 5, # Ancho
+  height = 3, # Alto
+  )
+```
+
+## Kaiser-Meyer-Olkin (KMO)
+
+```{r}
+KMO(r = mc)
+```
+
+## Prueba de esfericidad de Barlette
+
+```{r}
+cortest.bartlett(R = mc, n = nrow(datos))
+```
+
+## Retención de factores (análisis paralelo)
+
+```{r}
+# Valores propios:
+ev1 = eigen(x = mc)$values
+
+# Radio:
+ev1[1] / ev1[2]
+
+# FA:
+ev1[3]-ev1[2]- (ev1[2]-ev1[1])
+ev1[4]-ev1[3]- (ev1[3]-ev1[2])
+
+# Análisis paralelo:
+api1 = nFactors::parallel(subject = nrow(datos2), var = ncol(datos2), rep = 500, cent = .05)
+
+# Gráfico:
+nFactors::nScree(eig = ev1, aparallel = api1$eigen$qevpea) %>% 
+  plot(xlab = "Componentes", ylab = "Autovalores", main = NULL)
+```
+
+# II PARTE: Análisis de estructura interna
+
+## Análisis Factorial Exploratorio (AFE)
+
+### AFE sin rotación
+
+```{r}
+# AFE sin rotación 1 factor:
+afe1 = factanal(~ ., data = datos2, factors = 1, rotation = "none")
+
+# AFE sin rotación 2 factor:
+afe2 = factanal(~ ., data = datos2, factors = 2, rotation = "none")
+
+# AFE sin rotación 3 factor:
+afe3 = factanal(~ ., data = datos2, factors = 3, rotation = "none")
+```
+
+```{r}
+# RMSEA 1 factor:
+N = afe1$n.obs ; chicuad1 = afe1$STATISTIC ; gl1 = afe1$dof
+RMSEA1 = sqrt(max((chicuad1 - gl1)/((N-1)*gl1), 0))
+r1 = chicuad1/gl1
+
+# RMSEA 2 factor:
+chicuad2 = afe2$STATISTIC ; gl2 = afe2$dof
+RMSEA2 = sqrt(max((chicuad2 - gl2)/((N-1)*gl2), 0))
+r2 = chicuad2/gl2
+
+# RMSEA 3 factor:
+chicuad3 = afe3$STATISTIC ; gl3 = afe3$dof
+RMSEA3 = sqrt(max((chicuad3 - gl3)/((N-1)*gl3), 0))
+r3 = chicuad3/gl3
+
+
+# Resultados:
+data.frame(
+  AFE = c("1 factor", "2 factores", "3 factores"),
+  RMSEA = c(RMSEA1, RMSEA2, RMSEA3),
+  Razon = c(r1, r2, r3)
+)
+```
+
+```{r}
+# Comparación entre modelo de 1 y 2 factores
+p_valor_1vs2 = pchisq(q = abs(chicuad1 - chicuad2), df = abs(gl1 - gl2), lower.tail = F) %>% round(4)
+
+# Comparación entre modelo de 2 y 3 factores
+p_valor_2vs3 = pchisq(q = abs(chicuad2 - chicuad3), df = abs(gl2 - gl3), lower.tail = F) %>% round(4)
+
+# Imprimir resultados
+print(paste("p-valor 1 vs 2 factores:", p_valor_1vs2))
+#print(paste("p-valor 2 vs 3 factores:", p_valor_2vs3))
+```
+
+### AFE con rotación
+
+```{r}
+factanal(~ ., data = datos2, factors = 2, rotation = "varimax")
+factanal(~ ., data = datos2, factors = 2, rotation = "promax")
+factanal(~ ., data = datos2, factors = 1, rotation = "promax")
+```
+
+------------------------------------------------------------------------
+
+## Análisis Factorial Confirmatorio (AFC)
+
+### AFC UNIDIMENCIONAL
+
+```{r}
+# Definir el modelo de AFC con dos factores correlacionados:
+modelafc0 = '
+  F1 =~ GT1 + GT2 + GT3 + GT4 + GT5 + GT6 + GT7 + GT8 + GT9 + GT10 + 
+        GT11 + GT12 + GT13 + GT14 + GT15 + GT16 + DA17 + DA18 + DA19 + DA20 + DA21 + DA22 + DA23 + DA24 + DA25 + DA26
+'
+
+# Ajustar el modelo de AFC
+ajusteafc0 = cfa(modelafc0, data = datos2, estimator = "MLM") 
+summary(ajusteafc0, fit.measures = TRUE, standardized = TRUE, rsq = TRUE)
+```
+
+### Factores correlacionados
+
+```{r}
+# Definir el modelo de AFC con dos factores correlacionados:
+modelafc1 = '
+  F1 =~ GT1 + GT2 + GT3 + GT4 + GT5 + GT6 + GT7 + GT8 + GT9 + GT10 + 
+        GT11 + GT12 + GT13 + GT14 + GT15 + GT16
+  F2 =~ DA17 + DA18 + DA19 + DA20 + DA21 + DA22 + DA23 + DA24 + DA25 + DA26
+'
+
+# Ajustar el modelo de AFC
+ajusteafc1 = cfa(modelafc1, data = datos2, estimator = "MLM") 
+
+# Resumen de los resultados:
+summary(ajusteafc1, fit.measures = TRUE, standardized = TRUE, rsq = TRUE)
+
+# Graficar el modelo:
+semPaths(
+  ajusteafc1,
+  what = "path",        # Tipo de gráfico
+  whatLabels = "std",   # Etiquetas estándar (estandarizadas)
+  intercepts = FALSE,   # Oculta los interceptos
+  exoVar = FALSE,       # Oculta variables exógenas
+  curvePivot = T,   # Evita que las curvas se ajusten automáticamente
+  edge.label.cex = 0.8, # Tamaño de las etiquetas en las aristas
+  sizeMan = 6,          # Tamaño de los nodos de variables observadas
+  sizeLat = 8,          # Tamaño de los nodos de variables latentes
+  label.cex = 1.2,      # Tamaño de las etiquetas de los nodos
+  mar = c(5, 5, 5, 5),  # Márgenes del gráfico
+  layout = "tree",      # Configuración en árbol para mayor claridad
+  residuals = FALSE,    # Oculta las varianzas residuales
+  optimizeLatRes = TRUE, # Optimiza posición de los residuos para latentes
+  nCharNodes = 0        # No recorta los nombres de los nodos
+)
+```
+
+### Factores independientes
+
+```{r}
+# Definir el modelo de análisis factorial de dos factores independientes:
+modelafc2 = '
+  F1 =~ GT1 + GT2 + GT3 + GT4 + GT5 + GT6 + GT7 + GT8 + GT9 + GT10 +
+        GT11 + GT12 + GT13 + GT14 + GT15 + GT16
+  F2 =~ DA17 + DA18 + DA19 + DA20 + DA21 + DA22 + DA23 + DA24 + DA25 + DA26
+  F1 ~~ 0*F2  # Factores independientes
+'
+
+# Ajustar el modelo para factores independientes
+ajusteafc2 = cfa(modelafc2, data = datos2, estimator = "MLM") 
+
+# Resumen de los resultados:
+summary(ajusteafc2, fit.measures = TRUE, standardized = TRUE, rsq = TRUE)
+
+# Graficar el modelo:
+semPaths(
+  ajusteafc2,
+  what = "path",        # Tipo de gráfico
+  whatLabels = "std",   # Etiquetas estándar (estandarizadas)
+  intercepts = FALSE,   # Oculta los interceptos
+  exoVar = FALSE,       # Oculta variables exógenas
+  curvePivot = T,   # Evita que las curvas se ajusten automáticamente
+  edge.label.cex = 0.8, # Tamaño de las etiquetas en las aristas
+  sizeMan = 6,          # Tamaño de los nodos de variables observadas
+  sizeLat = 8,          # Tamaño de los nodos de variables latentes
+  label.cex = 1.2,      # Tamaño de las etiquetas de los nodos
+  mar = c(5, 5, 5, 5),  # Márgenes del gráfico
+  layout = "tree",      # Configuración en árbol para mayor claridad
+  residuals = FALSE,    # Oculta las varianzas residuales
+  optimizeLatRes = TRUE, # Optimiza posición de los residuos para latentes
+  nCharNodes = 0        # No recorta los nombres de los nodos
+)
+```
+
+### Comparación
+
+Ver los valores estandarizados.
+
+```{r}
+a1 = summary(ajusteafc1, fit.measures = TRUE, standardized = TRUE, rsq = TRUE) ; a1
+a2 = summary(ajusteafc2, fit.measures = TRUE, standardized = TRUE, rsq = TRUE) ; a2
+```
+
+------------------------------------------------------------------------
+
+# III PARTE: Consistencia interna del instrumento
+
+## Teoría Clásica de los Test (TCT)
+
+```{r}
+# Alpha de Crombach:
+# alpha(x = datos2)
+
+alpha(x = datos2 %>% dplyr::select(GT1:GT16))
+alpha(x = datos2 %>% dplyr::select(DA17:DA26))
+```
+
+```{r}
+# Índices de dificultad y discriminación:
+tctF = CTT::itemAnalysis(as.data.frame(datos2))$itemReport # pBis es la discriminación.
+tctF = tctF %>% mutate_if(is.numeric, ~ round(., 2))
+tctF
+
+# Guardar en formato de Excel:
+#writexl::write_xlsx(x = tctF, path = here("Resultados", "Resultados TCT.xlsx"))
+```
+
+------------------------------------------------------------------------
+
+# IV PARTE: Análisis con TRI
+
+## Teoría de respuesta al ítem (TRI)
+
+Los datos son dicotómicos. Por ende, los modelos usados son los modelos logísticos de 1, 2 y 3 parámetros.
+
+## Estimación para cada factor
+
+### Factor 1: Gestión inadecuada del tiempo y organización académica
+
+```{r}
+# Modelo Rash:
+mod0 = ltm(datos2 %>% dplyr::select(GT1:GT16) ~ z1, constraint = cbind(c(1:ncol(datos2 %>% dplyr::select(GT1:GT16))), 2, 1))
+
+# Modelo 1PL:
+mod1 = rasch(data = datos2 %>% dplyr::select(GT1:GT16))
+
+# Modelo 2PL:
+mod2 = ltm(formula = datos2 %>% dplyr::select(GT1:GT16) ~ z1)
+
+mod2 %>% summary
+```
+
+#### Comparación de modelos
+
+```{r}
+# ANOVA:
+#anova(mod0, mod1)
+anova(mod1, mod2)
+
+# AIC y BIC:
+AIC(mod0, mod1, mod2) ; BIC(mod0, mod1, mod2)
+```
+
+### Factor 2: Desmotivación académica intrínseca
+
+```{r}
+# Modelo Rasch:
+mod4 = ltm(datos2 %>% dplyr::select(DA17:DA26) ~ z1, constraint = cbind(c(1:ncol(datos2 %>% dplyr::select(DA17:DA26))), 2, 1))
+
+# Modelo 1PL:
+mod5 = rasch(data = datos2 %>% dplyr::select(DA17:DA26))
+
+# Modelo 2PL:
+mod6 = ltm(formula = datos2 %>% dplyr::select(DA17:DA26) ~ z1)
+```
+
+#### Comparación de modelos
+
+```{r}
+# ANOVA:
+#anova(mod4, mod5)
+anova(mod5, mod6)
+
+# AIC y BIC:
+AIC(mod4, mod5, mod6) ; BIC(mod4, mod5, mod6)
+```
+
+------------------------------------------------------------------------
+
+## Modelos finales (parsimonia)
+
+### Factor 1
+
+```{r}
+# Extraer los coeficientes de los parámetros de dificultad, discriminación:
+resTRI_F1 = summary(mod2)[1] %>% as.data.frame()
+resTRI_F1$element = rownames(resTRI_F1) 
+
+# Ordenar la base de datos:
+resTRI_F1 = resTRI_F1 %>% 
+  dplyr::select(element, coefficients.value, coefficients.std.err, coefficients.z.vals)
+
+resTRI_F1
+
+# Guardar en un archivo Excel:
+writexl::write_xlsx(x = resTRI_F1, path = here("Resultados", "Resultados TRI F1A.xlsx")) 
+```
+
+```{r}
+# Parámetros de discriminación: 
+resTRI_F1[17:32,] %>% 
+  select(1,2) %>% 
+  mutate(Item = str_extract(element, "(?<=\\.).*")) %>% 
+  ggplot(aes(x = reorder(Item, coefficients.value), y = coefficients.value, 
+             fill = coefficients.value < 1)) +  # Condición para el color
+  geom_bar(stat = "identity") +  
+  geom_text(aes(label = round(coefficients.value, 2)), 
+            vjust = -0.5, color = "black", size = 3) +  
+  labs(x = "Ítems", y = "Discriminación") +
+  scale_fill_manual(values = c("TRUE" = "#803b3d", "FALSE" = "#2d476c"), 
+                    labels = c("Menor a 1", "Mayor o igual a 1"), 
+                    name = "Valor") +  # Define los colores manualmente
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    panel.background = element_rect(fill = "white", color = NA),
+    legend.position = "none"  # Oculta la leyenda si no es necesaria
+  )
+```
+
+### Factor 2
+
+```{r}
+# Extraer los coeficientes de los parámetros de dificultad, discriminación:
+resTRI_F2 = summary(mod6)[1] %>% as.data.frame()
+resTRI_F2$element = rownames(resTRI_F2) 
+
+# Ordenar la base de datos:
+resTRI_F2 = resTRI_F2 %>% 
+  dplyr::select(element, coefficients.value, coefficients.std.err, coefficients.z.vals)
+
+# Guardar en un archivo Excel:
+writexl::write_xlsx(x = resTRI_F2, path = here("Resultados", "Resultados TRI F2.xlsx")) 
+```
+
+```{r}
+# Parámetros de discriminación: 
+resTRI_F2[11:20,] %>% 
+  select(1,2) %>% 
+  mutate(Item = str_extract(element, "(?<=\\.).*")) %>% 
+  ggplot(aes(x = reorder(Item, coefficients.value), y = coefficients.value, 
+             fill = coefficients.value < 1)) +  # Condición para el color
+  geom_bar(stat = "identity") +  
+  geom_text(aes(label = round(coefficients.value, 2)), 
+            vjust = -0.5, color = "black", size = 3) +  
+  labs(x = "Ítems", y = "Discriminación") +
+  scale_fill_manual(values = c("TRUE" = "#803b3d", "FALSE" = "#2d476c"), 
+                    labels = c("Menor a 1", "Mayor o igual a 1"), 
+                    name = "Valor") +  # Define los colores manualmente
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    panel.background = element_rect(fill = "white", color = NA),
+    legend.position = "none"  # Oculta la leyenda si no es necesaria
+  )
+```
+
+------------------------------------------------------------------------
+
+# V PARTE: Análisis resultante
+
+## Curva Característica del Ítem (ICC)
+
+### Factor 1
+
+```{r}
+par(mfrow = c(1, 3))
+plot(mod2, type = "ICC", lty = 1, pch = 1:5, c(1:5), xlab = expression("Habilidad"~ theta), ylab = "Probabilidad", main = NULL)
+legend("topleft", c("Item 1","Item 2","Item 3", "Item 4", "Item 5"), pch = 1:5, col = 1:5, lty = 1, bty = "n", cex = 0.8)
+
+plot(mod2, type = "ICC", lty = 1, pch = 1:5, c(6:10), xlab = expression("Habilidad"~ theta), ylab = "Probabilidad", main = NULL)
+legend("topleft", c("Item 6","Item 7","Item 8", "Item 9", "Item 10"), pch = 1:5, col = 1:5, lty = 1, bty = "n", cex = 0.8)
+
+plot(mod2, type = "ICC", lty = 1, pch = 1:5, c(11:16), xlab = expression("Habilidad"~ theta), ylab = "Probabilidad", main = NULL)
+legend("topleft", c("Item 11","Item 12","Item 13", "Item 14", "Item 15", "Item 16"), pch = 1:6, col = 1:6, lty = 1, bty = "n", cex = 0.8)
+```
+
+### Factor 2
+
+```{r}
+par(mfrow = c(1, 2))
+plot(mod6, type = "ICC", lty = 1, pch = 1:5, c(1:5), xlab = expression("Habilidad"~ theta), ylab = "Probabilidad", main = NULL)
+legend("topleft", c("Item 17","Item 18","Item 19", "Item 20", "Item 21"), pch = 1:5, col = 1:5, lty = 1, bty = "n")
+
+plot(mod6, type = "ICC", lty = 1, pch = 1:5, c(6:9), xlab = expression("Habilidad"~ theta), ylab = "Probabilidad", main = NULL)
+legend("topleft", c("Item 22","Item 23","Item 24", "Item 25", "Item 26"), pch = 1:5, col = 1:5, lty = 1, bty = "n")
+```
+
+## Curva de Información de la Prueba (TIC):
+
+```{r}
+par(mfrow = c(1, 2))
+plot(mod2, type = "IIC", 0, xlab = expression("Habilidad"~ theta), ylab = "Información", main = "TIC Factor 1")
+plot(mod6, type = "IIC", 0, xlab = expression("Habilidad"~ theta), ylab = "Información", main = "TIC Factor 2")
+```
+
+## Curva de Información del Ítem (IIC):
+
+```{r}
+par(mfrow = c(1, 2))
+plot(mod2, type = "IIC", 1:16, xlab = expression("Habilidad"~ theta), ylab = "Información", main = "IIC Factor 1")
+plot(mod6, type = "IIC", 1:10, xlab = expression("Habilidad"~ theta), ylab = "Información", main = "IIC Factor 2")
+```
+
+## Ítems eliminados
+
+```{r}
+plot(mod2, type = "IIC", c(9,14), xlab = expression("Habilidad"~ theta), ylab = "Información", main = "IIC Factor 1")
+legend("topleft", c("Item 9","Item 14"), pch = 1:2, col = 1:2, lty = 1, bty = "n", cex = 0.9)
+```
+
+------------------------------------------------------------------------
+
+# VI PARTE: Puntuaciones de las personas
+
+## FACTOR 1
+
+Se utiliza el modelo 2PL sin considerar el ítem GT14.
+
+```{r}
+# Puntajes factoriales y errores estándar:
+puntua_f1a = ltm::factor.scores(object = mod2, resp.patterns = datos2 %>% dplyr::select(GT1:GT16))$score.dat
+
+# Puntajes factoriales y errores estándar en ESCALA LATENTE ESTÁNDAR (-3 a 3):
+puntua_f1b = ltm::factor.scores(object = mod2, resp.patterns = datos2 %>% dplyr::select(GT1:GT16))$score.dat$z1
+
+# Puntajes finales:
+pF1 = puntua_f1b
+
+# Resumen de los puntajes:
+pF1 %>% summary()
+
+# Cambio de escala: Escala de 0 a 100:
+pF1S = scales::rescale(pF1, to = c(0, 100))
+pF1S %>% summary()
+```
+
+## FACTOR 2
+
+Se utiliza el modelo 2PL con todos los ítems propuestos (ninguno se eliminó).
+
+```{r}
+# Puntajes factoriales y errores estándar:
+puntua_f2a = ltm::factor.scores(
+  object = mod5, 
+  resp.patterns = datos2 %>% dplyr::select(DA17:DA26)
+  )$score.dat
+
+# Puntajes factoriales y errores estándar en ESCALA LATENTE ESTÁNDAR (-3 a 3):
+puntua_f2b = ltm::factor.scores(
+  object = mod5, 
+  resp.patterns = datos2 %>% dplyr::select(DA17:DA26)
+  )$score.dat$z1
+
+# Puntajes finales:
+pF2 = puntua_f2b
+
+# Resumen de los puntajes:
+pF2 %>% summary()
+
+# Cambio de escala: Escala de 0 a 100:
+pF2S = scales::rescale(pF2, to = c(0, 100))
+pF2S %>% summary()
+```
+
+## Resumen
+
+```{r}
+# Gestión del tiempo
+pF1S %>% summary()
+pF1S %>% sd %>% round(2)
+
+# Desmotivación académica intrínseca
+pF2S %>% summary()
+pF2S %>% sd %>% round(2)
+```
+
+------------------------------------------------------------------------
+
+# VII PARTE: Análisis opcional
+
+## Base de datos con puntuaciones x factor
+
+```{r}
+# Puntajes en escala latente, escala 0-100 y variables de sexo y year_ucr:
+datosP = data.frame(
+  P1 = pF1, 
+  P2 = pF2, 
+  P1S = pF1S,
+  P2S = pF2S,
+  SEXO = datos$SEXO,
+  YEAR_UCR = datos$YEAR_UCR
+) %>% 
+  mutate_if(is.numeric, ~ round(., 2))
+  
+
+# Resultado:
+datosP
+```
+
+## Cortes de las puntuaciones
+
+```{r}
+# Gestión del tiempo:
+datosP$P1S %>% summary
+
+# Cortes basados en los cuartiles:
+cortes1 = c(0, 42.49, 78.39, 100.01) #c(-Inf, -0.590, 0.620, Inf)
+
+CP1 = cut(datosP$P1S, breaks = cortes1, labels = c("Baja", "Media", "Alta"), right = FALSE)
+CP1 %>% table()
+
+# DesmotiVACIÓN:
+datosP$P2S %>% summary
+
+# Cortes basados en los cuartiles:
+cortes2 = c(0, 45.26, 65.18, 100.01) #c(-Inf, -0.640, 0.940, Inf)
+CP2 = cut(datosP$P2S, breaks = cortes2, labels = c("Baja", "Media", "Alta"), right = FALSE)
+CP2 %>% table
+
+# Agregar las variables a la base de datos: 
+datosP = datosP %>% 
+  mutate(
+    ID = 1:nrow(datosP),
+    CorteP1 = CP1, 
+    CorteP2 = CP2
+    )
+```
+
+```{r}
+CP1 %>% table # Gestión 
+CP2 %>% table # Desmotiva
+```
+
+## Porcentajes
+
+```{r}
+# Gestión del tiempo:
+datosP %>%
+  group_by(CorteP1, SEXO) %>% 
+  summarise(Conteo = n(), .groups = "drop") %>%  
+  group_by(CorteP1) %>%  
+  mutate(Porcentaje = ((Conteo / sum(Conteo)) * 100) %>% round(1)) %>%  
+  arrange(CorteP1, SEXO)
+```
+
+```{r}
+# Desmotivación Académica:
+datosP %>%
+  group_by(CorteP2, SEXO) %>% 
+  summarise(Conteo = n(), .groups = "drop") %>%  
+  group_by(CorteP2) %>%  
+  mutate(Porcentaje = ((Conteo / sum(Conteo)) * 100) %>% round(1)) %>%  
+  arrange(CorteP2, SEXO)
+```
+
+## Descriptivos puntuaciones por factor
+
+```{r}
+# Estadísticos descriptivos: 
+desP = datosP %>% dplyr::select(P1, P2, P1S, P2S) %>% describe() ; desP
+
+# Guardar en un archivo Excel:
+writexl::write_xlsx(x = desP, path = here("Resultados", "Descriptivos Puntuaciones.xlsx")) 
+```
+
+## Correlación P1 y P2
+
+Correlación de las puntuaciones latentes.
+
+```{r}
+cor.test(datosP$P1S, datosP$P2S)
+
+wilcox.test(P1S ~ SEXO, data = datosP)
+```
+
+### Gestión alta
+
+```{r}
+gestion_alta = datosP %>% filter(CorteP1 == "Alta")
+gestio_media = datosP %>% filter(CorteP1 == "Media")
+gestion_baja = datosP %>% filter(CorteP1 == "Baja")
+
+shapiro.test(gestion_alta$P1S)
+
+# Para sexo:
+wilcox.test(P1S ~ SEXO, data = gestion_alta)
+wilcox.test(P2S ~ SEXO, data = gestion_alta)
+
+# Para años ucr:
+kruskal.test(P1S ~ YEAR_UCR, data = gestion_alta)
+kruskal.test(P2S ~ YEAR_UCR, data = gestion_alta)
+```
+
+## Diferencia por Sexo (cada factor)
+
+Usando toda la base.
+
+```{r}
+puntajes_sex = datosP %>% 
+  dplyr::select(P1S, P2S, SEXO, YEAR_UCR) %>% 
+  pivot_longer(cols = 1:2, names_to = "Factor", values_to = "Puntaje") %>% 
+  mutate(Factor = factor(case_when(
+    Factor == "P1S" ~ "Dimensión 1", 
+    TRUE ~ "Dimensión 2"
+    ), levels = c("Dimensión 1", "Dimensión 2"))) %>%
+  mutate(SEXO = factor(SEXO, levels = c("Masculino", "Femenino"))) %>% 
+  ggplot(aes(x = Factor, y = Puntaje, fill = SEXO)) +
+  geom_boxplot(alpha = 0.95) +
+  scale_fill_stata() +
+  labs(title = NULL, fill = "Sexo", x = NULL) + 
+  theme_bw(base_size = 12) + 
+  theme(
+    #axis.text.x = element_text(angle = 0), 
+    legend.title = element_text(size = 12, face = "bold"), 
+    legend.position = "bottom"
+  )
+
+# Resultado: 
+puntajes_sex
+
+# Guardar el gráfico:
+ggsave(
+  filename = here("Resultados", "BoxPlot Factores por Sexo.svg"),
+  plot = puntajes_sex,
+  width = 6, # Ancho
+  height = 4, # Alto
+  )
+```
+
+## Box plot por categoría de dimensión
+
+```{r}
+library(conflicted)
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+```
+
+### GT
+
+Gestión del tiempo distribución
+
+```{r}
+datosP %>%  
+  select(P1S, P2S, CorteP1, CorteP2, SEXO) %>% 
+  mutate(SEXO = factor(SEXO, levels = c("Masculino", "Femenino"))) %>% 
+  ggplot(aes(x = CorteP1, y = P1S, fill = SEXO)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "Puntaje", x = NULL, fill = "Sexo") +
+  scale_fill_stata() +
+  theme(legend.position = "bottom")
+```
+
+### DA
+
+Desmotivación distribución
+
+```{r}
+datosP %>%  
+  select(P1S, P2S, CorteP1, CorteP2, SEXO) %>% 
+  mutate(SEXO = factor(SEXO, levels = c("Masculino", "Femenino"))) %>%  
+  ggplot(aes(x = CorteP2, y = P2S, fill = SEXO)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "Puntaje", x = NULL, fill = "Sexo") +
+  scale_fill_stata() +
+  theme(legend.position = "bottom")
+```
+
+## Normalidad
+
+```{r}
+shapiro.test(datosP$P1S) ; shapiro.test(datosP$P2S)
+```
+
+## Diferencias de medias (no paramétrico)
+
+No hay una diferencia significativa en la distribución de los puntajes de P1 y P2 entre hombres y mujeres.
+
+```{r}
+# Prueba de Mann-Whitney para P1 y sexo
+wilcox.test(P1S ~ SEXO, data = datosP)
+
+# Prueba de Mann-Whitney para P2 y sexo
+wilcox.test(P2S ~ SEXO, data = datosP)
+```
